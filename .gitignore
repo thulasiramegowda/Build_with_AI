@@ -1,0 +1,19 @@
+# Personal learning context (from 1-start skill)
+/devpost/learner-profile.md
+
+# Dependencies & Build Outputs
+node_modules/
+dist/
+build/
+.cache/
+coverage/
+
+# Local credential & environment files
+.env
+.env.*
+!.env.example
+
+# OS & Editor
+.DS_Store
+Thumbs.db
+*.log
