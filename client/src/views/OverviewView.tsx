@@ -381,6 +381,11 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
               <span className="text-xs font-mono text-warm-secondary">{repo.owner} /</span>
               <h2 className="text-xl font-bold text-warm-primary tracking-tight">{repo.name}</h2>
               <Badge variant="emerald">Analysis Complete</Badge>
+              {repo.commitSha && (
+                <Badge variant="slate" className="font-mono text-[10px]">
+                  sha: {repo.commitSha.slice(0, 7)}
+                </Badge>
+              )}
               {repo.isFixture && <Badge variant="slate">Offline Fixture</Badge>}
             </div>
             <p className="text-xs text-warm-secondary max-w-2xl mt-1 leading-relaxed">

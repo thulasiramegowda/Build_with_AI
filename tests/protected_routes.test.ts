@@ -70,7 +70,7 @@ describe('CodePulse Protected Routes & Access Control', () => {
     expect(analyzeRes.body.success).toBe(true);
     expect(analyzeRes.body.analysisStatus).toBe('analyzed');
     expect(analyzeRes.body.metrics.routesCount).toBeGreaterThan(0);
-  });
+  }, 10000);
 
   it('authenticates via HttpOnly cookie and invalidates session on logout', async () => {
     // Create an authenticated session

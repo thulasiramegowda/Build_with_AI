@@ -6,12 +6,14 @@ import { sessionStore } from '../services/sessionStore';
 import { githubService } from '../services/githubService';
 import { getSessionToken } from './auth';
 import { repositoryDao } from '../db/repositoryDao';
+import { buildArchitectureDiagram } from '../engine/architectureBuilder';
+import { llmService } from '../services/llmService';
 
 const router = Router();
 
-// In-memory cache for fast lookup (mirrored to MySQL when connected)
-export const analysisCache = new Map<string, {
+export interface CachedAnalysis {
   analyzedAt: string;
+  commitSha?: string;
   metrics: {
     routesCount: number;
     apiCallsCount: number;
@@ -23,7 +25,17 @@ export const analysisCache = new Map<string, {
   apiCalls: any[];
   components: any[];
   models: any[];
-}>();
+  topLevelFolders?: string[];
+  frameworks?: string[];
+  allFilePaths?: string[];
+  mermaidDiagram?: string;
+  layers?: any[];
+  aiExplanation?: string | null;
+  explanationProvider?: 'gemini' | 'deterministic_fallback';
+}
+
+// In-memory cache for fast lookup (mirrored to MySQL when connected)
+export const analysisCache = new Map<string, CachedAnalysis>();
 
 // Offline demo fixture (KrishiSetu) — Explicitly labelled as sample data
 const fixtureRepo: RepositoryMetadata = {
@@ -61,9 +73,16 @@ router.get('/', async (req: Request, res: Response) => {
           isFixture: false,
           analysisStatus: cached ? 'analyzed' : 'unscanned',
           lastAnalyzed: cached?.analyzedAt || null,
+          commitSha: cached?.commitSha || null,
+          topLevelFolders: cached?.topLevelFolders || [],
+          frameworks: (cached?.frameworks && cached.frameworks.length > 0) ? cached.frameworks : r.frameworks,
+          aiExplanation: cached?.aiExplanation || null,
+          explanationProvider: cached?.explanationProvider || undefined,
           totalFiles: cached?.metrics.fileCount,
           detectedRoutesCount: cached?.metrics.routesCount,
           detectedApiCallsCount: cached?.metrics.apiCallsCount,
+          componentsCount: cached?.metrics.componentsCount,
+          modelsCount: cached?.metrics.modelsCount,
         };
       }));
       return res.json(annotated);
@@ -142,6 +161,11 @@ router.get('/:id', async (req: Request, res: Response) => {
       ...repo,
       analysisStatus: 'analyzed',
       lastAnalyzed: cached.analyzedAt,
+      commitSha: cached.commitSha || null,
+      topLevelFolders: cached.topLevelFolders || [],
+      frameworks: (cached.frameworks && cached.frameworks.length > 0) ? cached.frameworks : repo.frameworks,
+      aiExplanation: cached.aiExplanation || null,
+      explanationProvider: cached.explanationProvider || undefined,
       totalFiles: cached.metrics.fileCount,
       detectedRoutesCount: cached.metrics.routesCount,
       detectedApiCallsCount: cached.metrics.apiCallsCount,
@@ -173,7 +197,7 @@ router.post('/analyze', async (req: Request, res: Response) => {
   const token = getSessionToken(req);
   const session = await sessionStore.getSessionAsync(token);
 
-  // If analyzing local fixture
+  // If analyzing local fixture (KrishiSetu)
   if (repoId === 'krishisetu') {
     if (!sessionStore.isDemoModeActive() && !session) {
       return res.status(401).json({
@@ -184,8 +208,25 @@ router.post('/analyze', async (req: Request, res: Response) => {
     const fixtureDir = resolveFixtureDir('krishisetu');
     const analysis = analyzeDirectory(fixtureDir);
 
-    const result = {
+    const { mermaidDiagram, layers } = buildArchitectureDiagram(
+      'krishisetu',
+      analysis,
+      ['CropDashboard.tsx', 'BidHistory.tsx', 'crops.ts', 'bids.ts', 'cropRoutes.ts', 'bidRoutes.ts', 'Crop.ts', 'Bid.ts'],
+      true
+    );
+
+    const aiExplanationRes = await llmService.explainArchitecture({
+      name: 'KrishiSetu',
+      owner: 'agritech-collective',
+      frameworks: fixtureRepo.frameworks,
+      fileCount: analysis.fileCount,
+      routesCount: analysis.routes.length,
+      folders: ['client', 'server'],
+    });
+
+    const result: CachedAnalysis = {
       analyzedAt: new Date().toISOString(),
+      commitSha: 'sample-sha-7a8b9c',
       metrics: {
         routesCount: analysis.routes.length,
         apiCallsCount: analysis.apiCalls.length,
@@ -197,6 +238,13 @@ router.post('/analyze', async (req: Request, res: Response) => {
       apiCalls: analysis.apiCalls,
       components: analysis.components,
       models: analysis.models,
+      topLevelFolders: ['client', 'server'],
+      frameworks: fixtureRepo.frameworks,
+      allFilePaths: [],
+      mermaidDiagram,
+      layers,
+      aiExplanation: aiExplanationRes.text,
+      explanationProvider: aiExplanationRes.source,
     };
 
     analysisCache.set('krishisetu', result);
@@ -208,7 +256,11 @@ router.post('/analyze', async (req: Request, res: Response) => {
       repoId: 'krishisetu',
       analysisStatus: 'analyzed',
       analyzedAt: result.analyzedAt,
+      commitSha: result.commitSha,
       metrics: result.metrics,
+      frameworks: result.frameworks,
+      aiExplanation: result.aiExplanation,
+      explanationProvider: result.explanationProvider,
     });
   }
 
@@ -216,38 +268,98 @@ router.post('/analyze', async (req: Request, res: Response) => {
   if (session) {
     // Verify user authorization for this repo
     const userRepos = await githubService.fetchUserRepositories(session.accessToken);
-    const authorized = userRepos.some(r => r.id === repoId || r.fullName.toLowerCase() === repoId.toLowerCase());
-    if (!authorized) {
+    const targetRepo = userRepos.find(
+      r => r.id === repoId || r.fullName.toLowerCase() === repoId.toLowerCase() || r.name.toLowerCase() === repoId.toLowerCase()
+    );
+
+    if (!targetRepo) {
       return res.status(403).json({
-        error: 'Forbidden. The authenticated user does not have permission to analyze this repository.'
+        error: 'Forbidden. The authenticated user does not have permission to analyze this repository.',
       });
     }
 
-    const result = {
-      analyzedAt: new Date().toISOString(),
-      metrics: {
-        routesCount: 0,
-        apiCallsCount: 0,
-        componentsCount: 0,
-        modelsCount: 0,
-        fileCount: 0,
-      },
-      routes: [],
-      apiCalls: [],
-      components: [],
-      models: [],
-    };
-    analysisCache.set(repoId, result);
-    repositoryDao.saveAnalysis(repoId, result).catch(() => {});
+    try {
+      // Ingest real repository files through authenticated GitHub REST API
+      const ingestion = await githubService.ingestAndAnalyzeRepository(
+        session.accessToken,
+        targetRepo.owner,
+        targetRepo.name,
+        targetRepo.defaultBranch || 'main'
+      );
 
-    return res.json({
-      success: true,
-      repoId,
-      analysisStatus: 'analyzed',
-      analyzedAt: result.analyzedAt,
-      metrics: result.metrics,
-      notice: 'Connected GitHub repository scanned via REST API.',
-    });
+      // Build dynamic Mermaid architecture diagram from discovered files and verified tiers
+      const { mermaidDiagram, layers } = buildArchitectureDiagram(
+        targetRepo.name,
+        {
+          routes: ingestion.routes,
+          apiCalls: ingestion.apiCalls,
+          components: ingestion.components,
+          models: ingestion.models,
+          topLevelFolders: ingestion.topLevelFolders,
+        },
+        ingestion.allFilePaths,
+        false
+      );
+
+      // Generate AI explanation via Gemini 2.5 Flash with deterministic fallback
+      const aiExplanationRes = await llmService.explainArchitecture({
+        name: targetRepo.name,
+        owner: targetRepo.owner,
+        frameworks: ingestion.frameworks.length > 0 ? ingestion.frameworks : targetRepo.frameworks,
+        fileCount: ingestion.totalFiles,
+        routesCount: ingestion.routes.length,
+        folders: ingestion.topLevelFolders,
+      });
+
+      const result: CachedAnalysis = {
+        analyzedAt: new Date().toISOString(),
+        commitSha: ingestion.commitSha,
+        metrics: {
+          routesCount: ingestion.routes.length,
+          apiCallsCount: ingestion.apiCalls.length,
+          componentsCount: ingestion.components.length,
+          modelsCount: ingestion.models.length,
+          fileCount: ingestion.totalFiles,
+        },
+        routes: ingestion.routes,
+        apiCalls: ingestion.apiCalls,
+        components: ingestion.components,
+        models: ingestion.models,
+        topLevelFolders: ingestion.topLevelFolders,
+        frameworks: ingestion.frameworks,
+        allFilePaths: ingestion.allFilePaths,
+        mermaidDiagram,
+        layers,
+        aiExplanation: aiExplanationRes.text,
+        explanationProvider: aiExplanationRes.source,
+      };
+
+      // Cache by ID and FullName for immediate lookup across endpoints
+      analysisCache.set(targetRepo.id, result);
+      analysisCache.set(targetRepo.fullName, result);
+      repositoryDao.saveAnalysis(targetRepo.id, result).catch(() => {});
+
+      return res.json({
+        success: true,
+        repoId: targetRepo.id,
+        fullName: targetRepo.fullName,
+        analysisStatus: 'analyzed',
+        analyzedAt: result.analyzedAt,
+        commitSha: result.commitSha,
+        metrics: result.metrics,
+        frameworks: result.frameworks,
+        topLevelFolders: result.topLevelFolders,
+        aiExplanation: result.aiExplanation,
+        explanationProvider: result.explanationProvider,
+        notice: `Successfully scanned ${result.metrics.fileCount} source files at commit ${(result.commitSha || 'HEAD').slice(0, 7)}.`,
+      });
+    } catch (err: any) {
+      console.error('[Live Repo Ingestion Error]:', err);
+      return res.status(502).json({
+        error: 'Repository ingestion failed',
+        message: err.message || 'Unable to fetch file tree and source code from GitHub.',
+      });
+    }
   }
 
   return res.status(401).json({
@@ -282,62 +394,38 @@ router.get('/:id/architecture', async (req: Request, res: Response) => {
     });
   }
 
-  // Generate Mermaid architecture diagram from actual analyzed routes & components
-  const mermaid = `flowchart TD
-  subgraph Frontend["Frontend Tier (React + Vite)"]
-    UI_Crop["CropDashboard.tsx"]
-    UI_Bid["BidHistory.tsx"]
-    API_Crops["api/crops.ts"]
-    API_Bids["api/bids.ts"]
-    API_Prices["api/marketPrices.ts"]
-  end
+  let mermaidDiagram = cached.mermaidDiagram;
+  let layers = cached.layers;
 
-  subgraph Gateway["Express API Layer"]
-    R_Crop["/api/crops"]
-    R_Bid["/api/bids"]
-    R_Prices["/api/market-prices"]
-  end
-
-  subgraph Controllers["Business Logic Controllers"]
-    C_Crop["cropController.ts"]
-    C_Bid["bidController.ts"]
-  end
-
-  subgraph Database["Data Models & Storage"]
-    M_Crop[("Crop.ts (Records)")]
-    M_Bid[("Bid.ts (Records)")]
-  end
-
-  UI_Crop --> API_Crops
-  UI_Crop --> API_Prices
-  UI_Bid --> API_Bids
-
-  API_Crops -.->|HTTP GET/POST| R_Crop
-  API_Bids -.->|HTTP GET/PUT| R_Bid
-  API_Prices -.->|HTTP GET| R_Prices
-
-  R_Crop --> C_Crop
-  R_Bid --> C_Bid
-
-  C_Crop --> M_Crop
-  C_Bid --> M_Bid
-
-  classDef client fill:#FAF7EE,stroke:#D9A62E,stroke-width:1.5px,color:#252923;
-  classDef server fill:#FFFDF7,stroke:#77766E,stroke-width:1.5px,color:#252923;
-  classDef db fill:#F3F0E6,stroke:#059669,stroke-width:1.5px,color:#065F46;
-
-  class UI_Crop,UI_Bid,API_Crops,API_Bids,API_Prices client;
-  class R_Crop,R_Bid,R_Prices,C_Crop,C_Bid server;
-  class M_Crop,M_Bid db;`;
+  if (!mermaidDiagram) {
+    const isKrishi = repoId === 'krishisetu';
+    const built = buildArchitectureDiagram(
+      repoId,
+      {
+        routes: cached.routes || [],
+        apiCalls: cached.apiCalls || [],
+        components: cached.components || [],
+        models: cached.models || [],
+        topLevelFolders: cached.topLevelFolders,
+      },
+      cached.allFilePaths || [],
+      isKrishi
+    );
+    mermaidDiagram = built.mermaidDiagram;
+    layers = built.layers;
+  }
 
   res.json({
     repoId,
-    mermaidDiagram: mermaid,
-    layers: [
-      { name: 'Frontend Tier', type: 'client', count: cached.components.length + cached.apiCalls.length },
-      { name: 'Express API Layer', type: 'routing', count: cached.routes.length },
-      { name: 'Controllers & Models', type: 'database', count: cached.models.length + 2 },
-    ]
+    mermaidDiagram,
+    layers: layers || [
+      { name: 'Frontend Tier', type: 'client', count: (cached.components?.length || 0) + (cached.apiCalls?.length || 0) },
+      { name: 'API Layer', type: 'routing', count: cached.routes?.length || 0 },
+      { name: 'Controllers & Models', type: 'database', count: (cached.models?.length || 0) + 2 },
+    ],
+    commitSha: cached.commitSha || null,
+    aiExplanation: cached.aiExplanation || null,
+    explanationProvider: cached.explanationProvider || 'deterministic_fallback',
   });
 });
 

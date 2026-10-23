@@ -113,27 +113,45 @@ router.get('/:repoId', async (req: Request, res: Response) => {
   }
 
   // Live GitHub repository PR fetching
-  if (session && repoIdParam.includes('/')) {
-    const [owner, repo] = repoIdParam.split('/');
-    try {
-      const livePulls = await githubService.fetchRepositoryPullRequests(session.accessToken, owner, repo);
-      return res.json(livePulls.map((p: any) => ({
-        id: String(p.id),
-        number: p.number,
-        title: p.title,
-        author: p.user?.login || 'unknown',
-        baseBranch: p.base?.ref || 'main',
-        headBranch: p.head?.ref || 'feature',
-        createdAt: p.created_at,
-        changedFilesCount: 0,
-        additions: 0,
-        deletions: 0,
-        riskLevel: 'medium',
-        isFixture: false,
-      })));
-    } catch (err: any) {
-      console.error('Failed to fetch PRs from GitHub API:', err);
-      return res.status(502).json({ error: 'GitHub PR fetch failed', message: err.message });
+  if (session && repoIdParam !== 'krishisetu') {
+    let owner = '';
+    let repo = '';
+    if (repoIdParam.includes('/')) {
+      [owner, repo] = repoIdParam.split('/');
+    } else {
+      try {
+        const liveRepos = await githubService.fetchUserRepositories(session.accessToken);
+        const target = liveRepos.find(r => r.id === repoIdParam || r.name.toLowerCase() === repoIdParam.toLowerCase() || r.fullName.toLowerCase() === repoIdParam.toLowerCase());
+        if (target) {
+          owner = target.owner;
+          repo = target.name;
+        }
+      } catch (err: any) {
+        console.warn('Could not resolve repo owner/name:', err.message);
+      }
+    }
+
+    if (owner && repo) {
+      try {
+        const livePulls = await githubService.fetchRepositoryPullRequests(session.accessToken, owner, repo);
+        return res.json(livePulls.map((p: any) => ({
+          id: String(p.id),
+          number: p.number,
+          title: p.title,
+          author: p.user?.login || 'unknown',
+          baseBranch: p.base?.ref || 'main',
+          headBranch: p.head?.ref || 'feature',
+          createdAt: p.created_at,
+          changedFilesCount: 0,
+          additions: 0,
+          deletions: 0,
+          riskLevel: 'medium',
+          isFixture: false,
+        })));
+      } catch (err: any) {
+        console.error('Failed to fetch PRs from GitHub API:', err);
+        return res.status(502).json({ error: 'GitHub PR fetch failed', message: err.message });
+      }
     }
   }
 
@@ -178,29 +196,47 @@ router.get('/:repoId/:prId', async (req: Request, res: Response) => {
   }
 
   // Live GitHub PR diff
-  if (session && repoIdParam.includes('/')) {
-    const [owner, repo] = repoIdParam.split('/');
-    const prNum = parseInt(prIdParam, 10);
-    try {
-      const rawDiff = await githubService.fetchPullRequestDiff(session.accessToken, owner, repo, prNum);
-      const parsedFiles = parseUnifiedDiff(rawDiff);
-      const risk = evaluateRegressionRisk(parsedFiles, 4);
+  if (session && repoIdParam !== 'krishisetu') {
+    let owner = '';
+    let repo = '';
+    if (repoIdParam.includes('/')) {
+      [owner, repo] = repoIdParam.split('/');
+    } else {
+      try {
+        const liveRepos = await githubService.fetchUserRepositories(session.accessToken);
+        const target = liveRepos.find(r => r.id === repoIdParam || r.name.toLowerCase() === repoIdParam.toLowerCase() || r.fullName.toLowerCase() === repoIdParam.toLowerCase());
+        if (target) {
+          owner = target.owner;
+          repo = target.name;
+        }
+      } catch (err: any) {
+        console.warn('Could not resolve repo owner/name:', err.message);
+      }
+    }
 
-      return res.json({
-        id: String(prNum),
-        number: prNum,
-        title: `Pull Request #${prNum}`,
-        author: 'Contributor',
-        baseBranch: 'main',
-        headBranch: 'feature',
-        rawDiff,
-        changedFiles: parsedFiles,
-        riskLevel: risk.riskLevel,
-        riskSummary: risk.riskSummary,
-        isFixture: false,
-      });
-    } catch (err: any) {
-      return res.status(502).json({ error: 'Failed to fetch PR diff from GitHub', message: err.message });
+    if (owner && repo) {
+      const prNum = parseInt(prIdParam, 10);
+      try {
+        const rawDiff = await githubService.fetchPullRequestDiff(session.accessToken, owner, repo, prNum);
+        const parsedFiles = parseUnifiedDiff(rawDiff);
+        const risk = evaluateRegressionRisk(parsedFiles, 4);
+
+        return res.json({
+          id: String(prNum),
+          number: prNum,
+          title: `Pull Request #${prNum}`,
+          author: 'Contributor',
+          baseBranch: 'main',
+          headBranch: 'feature',
+          rawDiff,
+          changedFiles: parsedFiles,
+          riskLevel: risk.riskLevel,
+          riskSummary: risk.riskSummary,
+          isFixture: false,
+        });
+      } catch (err: any) {
+        return res.status(502).json({ error: 'Failed to fetch PR diff from GitHub', message: err.message });
+      }
     }
   }
 
@@ -235,19 +271,55 @@ router.get('/:repoId/:prId/impact-graph', async (req: Request, res: Response) =>
     });
   }
 
-  const pr = samplePRs.find(p => p.id === prIdParam || p.number.toString() === prIdParam) || samplePRs[0];
-  const parsedFiles = parseUnifiedDiff(pr.rawDiff);
+  let rawDiff = '';
+  let prNumber = 1;
+
+  if (repoIdParam === 'krishisetu' || prIdParam.startsWith('pr-')) {
+    const pr = samplePRs.find(p => p.id === prIdParam || p.number.toString() === prIdParam) || samplePRs[0];
+    rawDiff = pr.rawDiff;
+    prNumber = pr.number;
+  } else if (session) {
+    let owner = '';
+    let repo = '';
+    if (repoIdParam.includes('/')) {
+      [owner, repo] = repoIdParam.split('/');
+    } else {
+      try {
+        const liveRepos = await githubService.fetchUserRepositories(session.accessToken);
+        const target = liveRepos.find(r => r.id === repoIdParam || r.name.toLowerCase() === repoIdParam.toLowerCase() || r.fullName.toLowerCase() === repoIdParam.toLowerCase());
+        if (target) {
+          owner = target.owner;
+          repo = target.name;
+        }
+      } catch {}
+    }
+
+    if (owner && repo) {
+      prNumber = parseInt(prIdParam, 10);
+      try {
+        rawDiff = await githubService.fetchPullRequestDiff(session.accessToken, owner, repo, prNumber);
+      } catch (err: any) {
+        return res.status(502).json({ error: 'Failed to fetch PR diff for impact graph', message: err.message });
+      }
+    }
+  }
+
+  if (!rawDiff) {
+    return res.status(404).json({ error: 'No pull request diff available to calculate impact graph.' });
+  }
+
+  const parsedFiles = parseUnifiedDiff(rawDiff);
 
   const graphData = buildImpactGraph(
     parsedFiles,
-    cached.routes,
-    cached.apiCalls,
-    cached.components
+    cached.routes || [],
+    cached.apiCalls || [],
+    cached.components || []
   );
 
   res.json({
-    prId: pr.id,
-    prNumber: pr.number,
+    prId: String(prNumber),
+    prNumber,
     ...graphData,
   });
 });

@@ -26,6 +26,10 @@ export interface RepositoryMetadata {
   modelsCount?: number;
   contractErrorsCount?: number;
   openPRsCount?: number;
+  commitSha?: string | null;
+  topLevelFolders?: string[];
+  aiExplanation?: string | null;
+  explanationProvider?: 'gemini' | 'deterministic_fallback';
   url?: string;
   isPrivate?: boolean;
 }

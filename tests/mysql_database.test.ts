@@ -20,12 +20,10 @@ describe('CodePulse MySQL Database Integration & Graceful Fallback', () => {
 
   it('runs unit tests independently without requiring live MySQL credentials', async () => {
     // When no MySQL server is running, db pool safely returns null or logs a graceful fallback
-    const isConn = db.isConnected();
-    expect(typeof isConn).toBe('boolean');
-
-    // Calling query on offline database returns null without crashing the process
     const rows = await db.query('SELECT 1');
-    if (!isConn) {
+    if (db.isConnected()) {
+      expect(Array.isArray(rows)).toBe(true);
+    } else {
       expect(rows).toBeNull();
     }
   });

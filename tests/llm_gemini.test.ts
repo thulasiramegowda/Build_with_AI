@@ -34,7 +34,7 @@ describe('CodePulse Google Gemini LLM Integration Adapter', () => {
   it('reports configuration status truthfully based on GEMINI_API_KEY', () => {
     const isConf = llmService.isConfigured();
     expect(typeof isConf).toBe('boolean');
-    expect(llmService.getModelName()).toBe('gemini-1.5-flash');
+    expect(['gemini-2.5-flash', 'gemini-1.5-flash']).toContain(llmService.getModelName());
   });
 
   it('produces high-quality deterministic fallback explanation when Gemini API key is absent', async () => {

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Layers, RefreshCw, Info, Play, AlertCircle } from 'lucide-react';
+import { Layers, RefreshCw, Info, Play, AlertCircle, Sparkles, GitCommit, Cpu } from 'lucide-react';
 import { api, RepoMetadata } from '../api/client';
 import { MermaidViewer } from '../components/MermaidViewer';
 import { Badge } from '../components/Badge';
@@ -17,6 +17,9 @@ export const ArchitectureView: React.FC<ArchitectureViewProps> = ({
 }) => {
   const [diagram, setDiagram] = useState<string>('');
   const [layers, setLayers] = useState<any[]>([]);
+  const [commitSha, setCommitSha] = useState<string | null>(null);
+  const [explanation, setExplanation] = useState<string | null>(null);
+  const [provider, setProvider] = useState<'gemini' | 'deterministic_fallback' | undefined>(undefined);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -24,6 +27,9 @@ export const ArchitectureView: React.FC<ArchitectureViewProps> = ({
     if (!repo || repo.analysisStatus === 'unscanned') {
       setDiagram('');
       setLayers([]);
+      setCommitSha(null);
+      setExplanation(null);
+      setProvider(undefined);
       return;
     }
 
@@ -37,6 +43,9 @@ export const ArchitectureView: React.FC<ArchitectureViewProps> = ({
         } else {
           setDiagram(res.mermaidDiagram);
           setLayers(res.layers || []);
+          setCommitSha((res as any).commitSha || repo.commitSha || null);
+          setExplanation((res as any).aiExplanation || repo.aiExplanation || null);
+          setProvider((res as any).explanationProvider || repo.explanationProvider || undefined);
         }
       })
       .catch(err => {
@@ -98,10 +107,27 @@ export const ArchitectureView: React.FC<ArchitectureViewProps> = ({
           <div className="flex items-center gap-2 mb-1">
             <span className="text-xs font-mono text-warm-secondary">{repo.owner}/{repo.name}</span>
             <Badge variant="emerald">Extracted</Badge>
+            {commitSha && (
+              <Badge variant="slate" className="flex items-center gap-1 font-mono">
+                <GitCommit className="w-3 h-3" />
+                <span>{commitSha.slice(0, 7)}</span>
+              </Badge>
+            )}
+            {provider === 'gemini' ? (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-800 border border-amber-300">
+                <Sparkles className="w-3 h-3 text-amber-600" />
+                Gemini 2.5 Flash
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-stone-100 text-stone-700 border border-stone-300">
+                <Cpu className="w-3 h-3 text-stone-500" />
+                Deterministic AST
+              </span>
+            )}
           </div>
           <h2 className="text-xl font-bold text-warm-primary tracking-tight">System Architecture Explorer</h2>
           <p className="text-xs text-warm-secondary mt-0.5">
-            Full-stack data flow from client UI down to Express routes and database models.
+            Full-stack system boundary and data flow extracted from repository AST and verified code contracts.
           </p>
         </div>
 
@@ -130,12 +156,34 @@ export const ArchitectureView: React.FC<ArchitectureViewProps> = ({
         <div className="space-y-4">
           <MermaidViewer chart={diagram} className="min-h-[460px] bg-warm-card border-warm-border" />
 
+          {/* AI Architecture Overview Card */}
+          {explanation && (
+            <div className="p-4 bg-warm-card border border-warm-border rounded-xl shadow-xs space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-warm-accent" />
+                  <h4 className="text-xs font-bold text-warm-primary tracking-wide uppercase">
+                    Architectural Intelligence Summary
+                  </h4>
+                </div>
+                {provider === 'gemini' && (
+                  <span className="text-[10px] text-amber-700 font-medium bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                    Generated with Gemini 2.5 Flash
+                  </span>
+                )}
+              </div>
+              <div className="text-xs text-warm-primary leading-relaxed whitespace-pre-line font-sans">
+                {explanation}
+              </div>
+            </div>
+          )}
+
           <div className="p-4 bg-warm-sidebar border border-warm-border rounded-xl text-xs text-warm-secondary flex items-start gap-2.5">
             <Info className="w-4 h-4 text-warm-accent shrink-0 mt-0.5" />
             <div>
-              <span className="font-bold text-warm-primary">Deterministic AST Extraction:</span>
+              <span className="font-bold text-warm-primary">Grounded AST Multi-Tier Analysis:</span>
               <span className="ml-1">
-                Generated from verified static AST imports, Express route handlers, and client Axios requests. Solid lines depict direct module imports; dashed lines depict HTTP network boundaries.
+                Generated from verified static AST imports, Express routes, client API calls, and smart contract boundaries. Solid lines depict module imports; dashed lines depict HTTP and network boundaries.
               </span>
             </div>
           </div>
