@@ -7,13 +7,25 @@ export default {
   theme: {
     extend: {
       colors: {
+        warm: {
+          bg: '#F8F6EF',
+          sidebar: '#F3F0E6',
+          card: '#FFFDF7',
+          border: '#E7E1D5',
+          primary: '#252923',
+          secondary: '#77766E',
+          accent: '#D9A62E',
+          'accent-hover': '#C19022',
+          'accent-light': '#FDF8EC',
+          highlight: '#FAF7EE',
+        },
         brand: {
-          50: '#eff6ff',
-          100: '#dbeafe',
-          500: '#3b82f6',
-          600: '#2563eb',
-          700: '#1d4ed8',
-          900: '#1e3a8a',
+          50: '#FDF8EC',
+          100: '#FBEECB',
+          500: '#D9A62E',
+          600: '#C19022',
+          700: '#9B7217',
+          900: '#523A06',
         }
       }
     },

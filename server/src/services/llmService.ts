@@ -1,21 +1,43 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { config } from '../config';
-import { ContractFinding, PullRequestDiff } from '../types';
+import { ContractFinding } from '../types';
 
 let genAI: GoogleGenerativeAI | null = null;
-if (config.geminiApiKey) {
-  try {
-    genAI = new GoogleGenerativeAI(config.geminiApiKey);
-  } catch (err) {
-    console.warn('Failed to initialize GoogleGenerativeAI, falling back to deterministic engine', err);
+
+function getClient(): GoogleGenerativeAI | null {
+  if (genAI) return genAI;
+  if (config.geminiApiKey && config.geminiApiKey.trim().length > 0) {
+    try {
+      genAI = new GoogleGenerativeAI(config.geminiApiKey);
+      return genAI;
+    } catch (err) {
+      console.warn('Failed to initialize GoogleGenerativeAI, falling back to deterministic engine', err);
+      return null;
+    }
   }
+  return null;
 }
 
-export async function explainFinding(finding: ContractFinding): Promise<string> {
-  if (genAI) {
-    try {
-      const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-      const prompt = `You are CodePulse, a senior staff software architect. Explain this detected API contract bug concisely to an engineering team:
+export const llmService = {
+  isConfigured(): boolean {
+    return Boolean(config.geminiApiKey && config.geminiApiKey.trim().length > 0);
+  },
+
+  getModelName(): string {
+    return config.geminiModel || 'gemini-1.5-flash';
+  },
+
+  // Test helper to allow injecting a mock generative AI client in unit tests
+  _setClient(mockClient: GoogleGenerativeAI | null): void {
+    genAI = mockClient;
+  },
+
+  async explainFinding(finding: ContractFinding): Promise<string> {
+    const client = getClient();
+    if (client) {
+      try {
+        const model = client.getGenerativeModel({ model: this.getModelName() });
+        const prompt = `You are CodePulse, a senior staff software architect. Explain this detected API contract bug concisely to an engineering team:
 Title: ${finding.title}
 Severity: ${finding.severity}
 Type: ${finding.type}
@@ -27,16 +49,19 @@ Provide a 2-paragraph architectural breakdown:
 1. Root cause and runtime impact on end users.
 2. Exact recommended remediation and verification steps.`;
 
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      return response.text();
-    } catch (e) {
-      console.warn('Gemini inference error, using deterministic explanation', e);
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        const text = response.text();
+        if (text && text.trim().length > 0) {
+          return text;
+        }
+      } catch (e: any) {
+        console.warn('Gemini inference error, using deterministic explanation fallback:', e.message);
+      }
     }
-  }
 
-  // Deterministic high-quality fallback explanation
-  return `### Root Cause Analysis & Architectural Impact
+    // Deterministic high-quality fallback explanation
+    return `### Root Cause Analysis & Architectural Impact
 ${finding.explanation}
 
 When the frontend client triggers this request, the browser or HTTP client encounters an immediate network protocol breakdown. Specifically, requests directed to an unmapped path or with mismatched HTTP semantics will be rejected with an HTTP 404 Not Found or 405 Method Not Allowed status.
@@ -45,10 +70,10 @@ When the frontend client triggers this request, the browser or HTTP client encou
 1. **Source Fix:** ${finding.suggestedFix}
 2. **Contract Alignment:** Ensure shared TypeScript request/response contracts are synchronized across both client and server packages.
 3. **Automated Verification:** Run the integration test suite or execute \`npm test\` to ensure no regression occurs in downstream components.`;
-}
+  },
 
-export function generateAgentPrompt(finding: ContractFinding): string {
-  return `# CODING AGENT INSTRUCTION: Resolve API Contract Mismatch
+  generateAgentPrompt(finding: ContractFinding): string {
+    return `# CODING AGENT INSTRUCTION: Resolve API Contract Mismatch
 
 ## Context & Finding
 Issue: ${finding.title}
@@ -70,19 +95,25 @@ ${finding.backendEvidence ? `- Backend Location: \`${finding.backendEvidence.fil
    ${finding.suggestedFix}
 3. Maintain TypeScript types and ensure all caller components continue compiling cleanly.
 4. Do not alter any unrelated business logic or exported signatures.`;
-}
+  },
 
-export async function generateSafePatch(finding: ContractFinding): Promise<string> {
-  if (finding.proposedPatch) {
-    return finding.proposedPatch;
-  }
+  async generateSafePatch(finding: ContractFinding): Promise<string> {
+    if (finding.proposedPatch) {
+      return finding.proposedPatch;
+    }
 
-  // Fallback unified diff template
-  const targetFile = finding.frontendEvidence?.filePath || finding.backendEvidence?.filePath || 'unknown.ts';
-  return `--- a/${targetFile}
+    // Fallback unified diff template
+    const targetFile = finding.frontendEvidence?.filePath || finding.backendEvidence?.filePath || 'unknown.ts';
+    return `--- a/${targetFile}
 +++ b/${targetFile}
 @@ -10,4 +10,4 @@
 -// CodePulse Patch Proposal for ${finding.id}
 +// Corrected endpoint contract: ${finding.suggestedFix}
 `;
-}
+  }
+};
+
+// Backward compatible functional exports
+export const explainFinding = (finding: ContractFinding) => llmService.explainFinding(finding);
+export const generateAgentPrompt = (finding: ContractFinding) => llmService.generateAgentPrompt(finding);
+export const generateSafePatch = (finding: ContractFinding) => llmService.generateSafePatch(finding);

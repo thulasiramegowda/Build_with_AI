@@ -17,3 +17,7 @@ coverage/
 .DS_Store
 Thumbs.db
 *.log
+
+# Agent scaffolding
+.claude/
+agent/

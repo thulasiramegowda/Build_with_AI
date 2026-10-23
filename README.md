@@ -37,6 +37,10 @@ CodePulse is a developer intelligence platform that helps software engineers and
    - **Local Demo Mode:** Ships with an authentic full-stack agricultural commerce app (**KrishiSetu**), allowing hackathon judges to test in 5 seconds with zero credentials required.
    - **Live GitHub Mode:** Integrates with GitHub App tokens and OAuth sessions for real repository auditing under least-privilege read scopes.
 
+6. **Relational Database & Enterprise Security**
+   - **MySQL Persistence:** Relational schema for user sessions, repository metadata, AST metrics, and contract audits with automatic in-memory test fallback.
+   - **HttpOnly Cookie Sessions:** Strict session security preventing XSS and eliminating URL token exposure.
+
 ---
 
 ## 🏗️ Architecture & Data Flow
@@ -46,14 +50,14 @@ CodePulse is a developer intelligence platform that helps software engineers and
          │
          ▼
 [ React 18 + Vite Frontend ] (Port 5173)
-  ├── AppShell & Sidebar (Tailwind CSS, Lucide Icons)
-  ├── Overview Dashboard
+  ├── Warm Developer Theme & Responsive Hamburger Drawer
+  ├── Overview Dashboard (4-Stage Truthful Lifecycle)
   ├── Architecture Topology Explorer (Mermaid.js)
   ├── API Contract Auditor
   ├── PR Reviews & Unified Diff Viewer
   ├── Mermaid Change Impact Graph & Blast Radius Inspector
   └── Safe Patch Review Modal
-         │  (HTTP / JSON Proxy)
+         │  (HTTP / JSON Proxy with HttpOnly Cookies)
          ▼
 [ Express + TypeScript Backend ] (Port 3001)
   ├── Static Analyzer Engine (`engine/staticAnalyzer.ts`)
@@ -61,6 +65,7 @@ CodePulse is a developer intelligence platform that helps software engineers and
   ├── Unified Diff Parser (`engine/diffParser.ts`)
   ├── Change Impact Graph Builder (`engine/impactBuilder.ts`)
   ├── Gemini LLM Service (`services/llmService.ts`)
+  ├── MySQL Repository Persistence (`db/connection.ts` & `db/repositoryDao.ts`)
   └── Fixture Ingestion Service (`fixtures/krishisetu/`)
 ```
 
@@ -72,12 +77,13 @@ CodePulse is a developer intelligence platform that helps software engineers and
 - Node.js v18 or later
 - npm v9 or later
 - Git installed on your system
+- (Optional) MySQL 8.0+
 
 ### 1. Installation
 Clone the repository and install all dependencies:
 ```bash
-git clone https://github.com/your-username/codepulse.git
-cd codepulse
+git clone https://github.com/thulasiramegowda/Build_with_AI.git
+cd Build_with_AI
 npm install
 ```
 
@@ -86,7 +92,7 @@ Copy the example environment file:
 ```bash
 cp .env.example .env
 ```
-*Note: If `GEMINI_API_KEY` is not provided, CodePulse operates seamlessly with its deterministic heuristic engine.*
+*Note: If `GEMINI_API_KEY` or `MYSQL_*` are not configured, CodePulse operates seamlessly with its deterministic heuristic engine and in-memory test fallback.*
 
 ### 3. Start Development Servers
 Run frontend and backend concurrently:
@@ -97,7 +103,7 @@ npm run dev
 - **Backend API:** [http://localhost:3001/api/health](http://localhost:3001/api/health)
 
 ### 4. Run Automated Test Suite
-Execute the Vitest suite covering route normalization, static extraction, contract matching, and blast-radius graph construction:
+Execute the 22-test Vitest suite covering static extraction, diff parsing, blast-radius graph generation, MySQL fallback, and HttpOnly auth:
 ```bash
 npm test
 ```
@@ -106,28 +112,18 @@ npm test
 
 ## 🧪 Automated Testing Verification
 
-The test suite in `tests/engine.test.ts` runs without external network dependencies:
-- **Route Normalization:** Verifies `/api/crops/:id` & `/api/crops/${id}` normalize to `/api/crops/{param}`.
-- **Static Extraction:** Validates route and client call discovery in KrishiSetu.
-- **Contract Matching:** Confirms detection of deliberate path mismatches, method errors, and missing parameters.
-- **Diff Parsing:** Verifies unified diff hunk extraction and regression risk scoring.
-- **Mermaid Graph Construction:** Asserts valid Mermaid flowchart generation linking changed files to downstream components.
+The test suite in `tests/` runs with 100% pass rate without external network dependencies:
+- **`tests/engine.test.ts`:** Route normalization, static extraction, contract mismatches, diff parsing, and blast-radius graph.
+- **`tests/auth_and_lifecycle.test.ts`:** OAuth CSRF state validation, single-use nonces, session TTL expiration, and HttpOnly cookies.
+- **`tests/protected_routes.test.ts`:** 401/403 access control, unauthorized repository isolation, and logout session invalidation.
+- **`tests/mysql_database.test.ts`:** Schema validation, connection error handling, and in-memory fallback.
+- **`tests/llm_gemini.test.ts`:** Gemini prompt generation, safe patch generation, and deterministic rule engine fallback.
 
 ---
 
 ## 🛡️ Security & Privacy Boundary
 
+- **HttpOnly Cookies:** Session tokens are stored in secure `HttpOnly`, `SameSite=Lax` cookies, preventing XSS and eliminating URL parameter leaks.
 - **No Secret Leakage:** Tokens and private keys are loaded strictly in server-side environment variables and never logged or sent to the browser.
 - **Least Privilege:** Uses read-only repository permissions (`repo:read`).
 - **Zero Silent Mutations:** CodePulse never merges PRs, modifies remote branches, or alters working tree files without explicit user consent.
-
----
-
-## 📜 Devpost Hackathon Deliverables
-
-- Planning Documentation:
-  - `devpost/learner-profile.md`
-  - `devpost/scope.md`
-  - `devpost/prd.md`
-  - `devpost/spec.md`
-  - `devpost/checklist.md`

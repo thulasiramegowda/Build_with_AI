@@ -14,7 +14,9 @@
     "lint": "tsc --noEmit --project server && tsc --noEmit --project client"
   },
   "devDependencies": {
+    "@types/supertest": "^7.2.1",
     "concurrently": "^8.2.2",
+    "supertest": "^7.3.1",
     "vitest": "^2.1.3"
   }
 }

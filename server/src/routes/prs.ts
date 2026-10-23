@@ -1,8 +1,11 @@
 import { Router, Request, Response } from 'express';
 import { parseUnifiedDiff, evaluateRegressionRisk } from '../engine/diffParser';
 import { buildImpactGraph } from '../engine/impactBuilder';
-import { analyzeDirectory } from '../engine/staticAnalyzer';
-import { resolveFixtureDir } from '../utils/paths';
+import { analysisCache } from './repos';
+import { sessionStore } from '../services/sessionStore';
+import { githubService } from '../services/githubService';
+import { getSessionToken } from './auth';
+import { repositoryDao } from '../db/repositoryDao';
 
 const router = Router();
 
@@ -42,6 +45,7 @@ const samplePRs = [
     headBranch: 'feature/realtime-bidding',
     createdAt: '2026-10-21T09:30:00Z',
     rawDiff: samplePR14Diff,
+    isFixture: true,
   },
   {
     id: 'pr-12',
@@ -60,66 +64,185 @@ index c3d4e5f..g6h7i8j 100644
 -    const record = { id: \`crop-\${Date.now()}\`, ...data };
 +    const record = { id: \`crop-\${Date.now()}\`, ...data, quantityKg: Math.round(data.quantityKg * 100) / 100 };
      cropsStore.push(record);`,
+    isFixture: true,
   }
 ];
 
-router.get('/:repoId', (req: Request, res: Response) => {
-  res.json(samplePRs.map(pr => {
+// GET /api/prs/:repoId — List PRs for repository
+router.get('/:repoId', async (req: Request, res: Response) => {
+  const repoIdParam = (Array.isArray(req.params.repoId) ? req.params.repoId[0] : req.params.repoId) || '';
+  const token = getSessionToken(req);
+  const session = await sessionStore.getSessionAsync(token);
+
+  // If repo is the sample fixture (and analyzed), return sample PRs
+  if (repoIdParam === 'krishisetu') {
+    if (!sessionStore.isDemoModeActive() && !session) {
+      return res.status(401).json({
+        error: 'Unauthorized. Enable Demo Mode or sign in with GitHub to view pull requests.',
+      });
+    }
+
+    let cached = analysisCache.get('krishisetu');
+    if (!cached) {
+      cached = await repositoryDao.getLatestAnalysis('krishisetu');
+      if (cached) analysisCache.set('krishisetu', cached);
+    }
+
+    if (!cached) {
+      return res.json([]);
+    }
+
+    return res.json(samplePRs.map(pr => {
+      const parsedFiles = parseUnifiedDiff(pr.rawDiff);
+      const risk = evaluateRegressionRisk(parsedFiles, 4);
+      return {
+        id: pr.id,
+        number: pr.number,
+        title: pr.title,
+        author: pr.author,
+        baseBranch: pr.baseBranch,
+        headBranch: pr.headBranch,
+        createdAt: pr.createdAt,
+        changedFilesCount: parsedFiles.length,
+        additions: parsedFiles.reduce((acc, f) => acc + f.additions, 0),
+        deletions: parsedFiles.reduce((acc, f) => acc + f.deletions, 0),
+        riskLevel: risk.riskLevel,
+        isFixture: true,
+      };
+    }));
+  }
+
+  // Live GitHub repository PR fetching
+  if (session && repoIdParam.includes('/')) {
+    const [owner, repo] = repoIdParam.split('/');
+    try {
+      const livePulls = await githubService.fetchRepositoryPullRequests(session.accessToken, owner, repo);
+      return res.json(livePulls.map((p: any) => ({
+        id: String(p.id),
+        number: p.number,
+        title: p.title,
+        author: p.user?.login || 'unknown',
+        baseBranch: p.base?.ref || 'main',
+        headBranch: p.head?.ref || 'feature',
+        createdAt: p.created_at,
+        changedFilesCount: 0,
+        additions: 0,
+        deletions: 0,
+        riskLevel: 'medium',
+        isFixture: false,
+      })));
+    } catch (err: any) {
+      console.error('Failed to fetch PRs from GitHub API:', err);
+      return res.status(502).json({ error: 'GitHub PR fetch failed', message: err.message });
+    }
+  }
+
+  if (!session) {
+    return res.status(401).json({ error: 'Authentication required to access pull requests.' });
+  }
+
+  return res.json([]);
+});
+
+// GET /api/prs/:repoId/:prId — Get detailed PR with diff
+router.get('/:repoId/:prId', async (req: Request, res: Response) => {
+  const prIdParam = Array.isArray(req.params.prId) ? req.params.prId[0] : req.params.prId;
+  const repoIdParam = (Array.isArray(req.params.repoId) ? req.params.repoId[0] : req.params.repoId) || '';
+  const token = getSessionToken(req);
+  const session = await sessionStore.getSessionAsync(token);
+
+  if (repoIdParam === 'krishisetu' || prIdParam.startsWith('pr-')) {
+    if (!sessionStore.isDemoModeActive() && !session) {
+      return res.status(401).json({ error: 'Unauthorized. Enable Demo Mode to view pull request details.' });
+    }
+
+    const pr = samplePRs.find(p => p.id === prIdParam || p.number.toString() === prIdParam);
+    if (!pr) return res.status(404).json({ error: 'Pull request not found' });
+
     const parsedFiles = parseUnifiedDiff(pr.rawDiff);
     const risk = evaluateRegressionRisk(parsedFiles, 4);
-    return {
+
+    return res.json({
       id: pr.id,
       number: pr.number,
       title: pr.title,
       author: pr.author,
       baseBranch: pr.baseBranch,
       headBranch: pr.headBranch,
-      createdAt: pr.createdAt,
-      changedFilesCount: parsedFiles.length,
-      additions: parsedFiles.reduce((acc, f) => acc + f.additions, 0),
-      deletions: parsedFiles.reduce((acc, f) => acc + f.deletions, 0),
+      rawDiff: pr.rawDiff,
+      changedFiles: parsedFiles,
       riskLevel: risk.riskLevel,
-    };
-  }));
+      riskSummary: risk.riskSummary,
+      isFixture: true,
+    });
+  }
+
+  // Live GitHub PR diff
+  if (session && repoIdParam.includes('/')) {
+    const [owner, repo] = repoIdParam.split('/');
+    const prNum = parseInt(prIdParam, 10);
+    try {
+      const rawDiff = await githubService.fetchPullRequestDiff(session.accessToken, owner, repo, prNum);
+      const parsedFiles = parseUnifiedDiff(rawDiff);
+      const risk = evaluateRegressionRisk(parsedFiles, 4);
+
+      return res.json({
+        id: String(prNum),
+        number: prNum,
+        title: `Pull Request #${prNum}`,
+        author: 'Contributor',
+        baseBranch: 'main',
+        headBranch: 'feature',
+        rawDiff,
+        changedFiles: parsedFiles,
+        riskLevel: risk.riskLevel,
+        riskSummary: risk.riskSummary,
+        isFixture: false,
+      });
+    } catch (err: any) {
+      return res.status(502).json({ error: 'Failed to fetch PR diff from GitHub', message: err.message });
+    }
+  }
+
+  return res.status(401).json({ error: 'Authentication required' });
 });
 
-router.get('/:repoId/:prId', (req: Request, res: Response) => {
-  const prIdParam = Array.isArray(req.params.prId) ? req.params.prId[0] : req.params.prId;
-  const pr = samplePRs.find(p => p.id === prIdParam || p.number.toString() === prIdParam);
-  if (!pr) return res.status(404).json({ error: 'Pull request not found' });
-
-  const parsedFiles = parseUnifiedDiff(pr.rawDiff);
-  const risk = evaluateRegressionRisk(parsedFiles, 4);
-
-  res.json({
-    id: pr.id,
-    number: pr.number,
-    title: pr.title,
-    author: pr.author,
-    baseBranch: pr.baseBranch,
-    headBranch: pr.headBranch,
-    rawDiff: pr.rawDiff,
-    changedFiles: parsedFiles,
-    riskLevel: risk.riskLevel,
-    riskSummary: risk.riskSummary,
-  });
-});
-
-router.get('/:repoId/:prId/impact-graph', (req: Request, res: Response) => {
+// GET /api/prs/:repoId/:prId/impact-graph — Signature Mermaid Change Impact Graph
+router.get('/:repoId/:prId/impact-graph', async (req: Request, res: Response) => {
   const repoIdParam = (Array.isArray(req.params.repoId) ? req.params.repoId[0] : req.params.repoId) || 'krishisetu';
   const prIdParam = Array.isArray(req.params.prId) ? req.params.prId[0] : req.params.prId;
-  const pr = samplePRs.find(p => p.id === prIdParam || p.number.toString() === prIdParam);
-  if (!pr) return res.status(404).json({ error: 'Pull request not found' });
+  const token = getSessionToken(req);
+  const session = await sessionStore.getSessionAsync(token);
 
-  const fixtureDir = resolveFixtureDir(repoIdParam);
-  const analysis = analyzeDirectory(fixtureDir);
+  if (repoIdParam === 'krishisetu') {
+    if (!sessionStore.isDemoModeActive() && !session) {
+      return res.status(401).json({ error: 'Unauthorized. Enable Demo Mode to view impact graph.' });
+    }
+  } else if (!session) {
+    return res.status(401).json({ error: 'Authentication required to view impact graph.' });
+  }
+
+  let cached = analysisCache.get(repoIdParam);
+  if (!cached) {
+    cached = await repositoryDao.getLatestAnalysis(repoIdParam);
+    if (cached) analysisCache.set(repoIdParam, cached);
+  }
+
+  if (!cached) {
+    return res.status(400).json({
+      error: 'Repository has not been analyzed yet. Run analysis first to build the impact graph.',
+      analysisStatus: 'unscanned',
+    });
+  }
+
+  const pr = samplePRs.find(p => p.id === prIdParam || p.number.toString() === prIdParam) || samplePRs[0];
   const parsedFiles = parseUnifiedDiff(pr.rawDiff);
 
   const graphData = buildImpactGraph(
     parsedFiles,
-    analysis.routes,
-    analysis.apiCalls,
-    analysis.components
+    cached.routes,
+    cached.apiCalls,
+    cached.components
   );
 
   res.json({

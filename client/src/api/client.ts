@@ -1,17 +1,33 @@
+export interface UserProfile {
+  id: string;
+  login: string;
+  name: string;
+  avatarUrl: string;
+  email?: string | null;
+  htmlUrl: string;
+}
+
 export interface RepoMetadata {
   id: string;
   name: string;
   owner: string;
-  description: string;
+  fullName?: string;
+  description: string | null;
   defaultBranch: string;
   languages: Record<string, number>;
   frameworks: string[];
-  totalFiles: number;
-  lastAnalyzed: string;
-  fileCount?: number;
+  totalFiles?: number;
+  lastAnalyzed?: string | null;
+  isFixture?: boolean;
+  analysisStatus?: 'unscanned' | 'analyzing' | 'analyzed' | 'failed';
   detectedRoutesCount?: number;
   detectedApiCallsCount?: number;
   componentsCount?: number;
+  modelsCount?: number;
+  contractErrorsCount?: number;
+  openPRsCount?: number;
+  url?: string;
+  isPrivate?: boolean;
 }
 
 export interface ContractFinding {
@@ -49,6 +65,7 @@ export interface PRSummary {
   additions: number;
   deletions: number;
   riskLevel: 'high' | 'medium' | 'low';
+  isFixture?: boolean;
 }
 
 export interface PRDetail extends PRSummary {
@@ -59,7 +76,7 @@ export interface PRDetail extends PRSummary {
     additions: number;
     deletions: number;
     diffHunks: string[];
-    changedSymbols: string[];
+    changedSymbols?: string[];
   }[];
 }
 
@@ -82,85 +99,124 @@ export interface ImpactGraphData {
   }[];
 }
 
+export interface AuthStatusResponse {
+  authenticated: boolean;
+  mode: 'github' | 'demo' | 'unauthenticated';
+  user: UserProfile | null;
+  githubConfigured: boolean;
+  geminiConfigured: boolean;
+  isDemoModeActive?: boolean;
+  setupRequired?: {
+    message: string;
+    requiredEnvVars: string[];
+    callbackUrl: string;
+  } | null;
+  permissions?: string[];
+}
+
 const API_BASE = '/api';
 
+async function fetchJson<T = any>(endpoint: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE}${endpoint}`, {
+    ...init,
+    credentials: 'include', // Automatically send and receive HttpOnly session cookies
+    headers: {
+      'Content-Type': 'application/json',
+      ...(init?.headers || {}),
+    },
+  });
+
+  if (!res.ok) {
+    const errorBody = await res.json().catch(() => ({}));
+    throw new Error(errorBody.error || errorBody.message || `Request failed with status ${res.status}`);
+  }
+
+  return res.json();
+}
+
 export const api = {
-  async getAuthStatus() {
-    const res = await fetch(`${API_BASE}/auth/status`);
-    return res.json();
+  async getAuthStatus(): Promise<AuthStatusResponse> {
+    return fetchJson<AuthStatusResponse>('/auth/status');
+  },
+
+  async toggleDemoMode(enable?: boolean): Promise<{ success: boolean; isDemoModeActive: boolean }> {
+    return fetchJson('/auth/demo-toggle', {
+      method: 'POST',
+      body: JSON.stringify(enable !== undefined ? { enable } : {}),
+    });
+  },
+
+  async logout(): Promise<void> {
+    await fetchJson('/auth/logout', {
+      method: 'POST',
+    });
   },
 
   async getRepos(): Promise<RepoMetadata[]> {
-    const res = await fetch(`${API_BASE}/repos`);
-    return res.json();
+    return fetchJson<RepoMetadata[]>('/repos');
   },
 
   async getRepoDetails(repoId: string): Promise<RepoMetadata> {
-    const res = await fetch(`${API_BASE}/repos/${repoId}`);
-    return res.json();
+    return fetchJson<RepoMetadata>(`/repos/${encodeURIComponent(repoId)}`);
   },
 
-  async getArchitecture(repoId: string): Promise<{ repoId: string; mermaidDiagram: string; layers: any[] }> {
-    const res = await fetch(`${API_BASE}/repos/${repoId}/architecture`);
-    return res.json();
+  async analyzeRepo(repoId: string): Promise<{ success: boolean; metrics: any; analysisStatus: string }> {
+    return fetchJson('/repos/analyze', {
+      method: 'POST',
+      body: JSON.stringify({ repoId }),
+    });
+  },
+
+  async getArchitecture(repoId: string): Promise<{ repoId: string; mermaidDiagram: string; layers: any[]; error?: string }> {
+    return fetchJson(`/repos/${encodeURIComponent(repoId)}/architecture`);
   },
 
   async getContracts(repoId: string): Promise<{
-    summary: { totalFindings: number; errorsCount: number; warningsCount: number; infoCount: number; verifiedContracts: number };
+    analysisStatus?: string;
+    summary: { totalFindings: number; errorsCount: number; warningsCount: number; infoCount: number; verifiedContracts: number } | null;
     findings: ContractFinding[];
+    message?: string;
   }> {
-    const res = await fetch(`${API_BASE}/contracts/${repoId}`);
-    return res.json();
+    return fetchJson(`/contracts/${encodeURIComponent(repoId)}`);
   },
 
   async getPRs(repoId: string): Promise<PRSummary[]> {
-    const res = await fetch(`${API_BASE}/prs/${repoId}`);
-    return res.json();
+    return fetchJson<PRSummary[]>(`/prs/${encodeURIComponent(repoId)}`);
   },
 
   async getPRDetail(repoId: string, prId: string): Promise<PRDetail> {
-    const res = await fetch(`${API_BASE}/prs/${repoId}/${prId}`);
-    return res.json();
+    return fetchJson<PRDetail>(`/prs/${encodeURIComponent(repoId)}/${encodeURIComponent(prId)}`);
   },
 
   async getImpactGraph(repoId: string, prId: string): Promise<ImpactGraphData> {
-    const res = await fetch(`${API_BASE}/prs/${repoId}/${prId}/impact-graph`);
-    return res.json();
+    return fetchJson<ImpactGraphData>(`/prs/${encodeURIComponent(repoId)}/${encodeURIComponent(prId)}/impact-graph`);
   },
 
   async explainFinding(finding: ContractFinding): Promise<{ explanation: string }> {
-    const res = await fetch(`${API_BASE}/patches/explain`, {
+    return fetchJson('/patches/explain', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ finding }),
     });
-    return res.json();
   },
 
   async getAgentPrompt(finding: ContractFinding): Promise<{ prompt: string }> {
-    const res = await fetch(`${API_BASE}/patches/prompt`, {
+    return fetchJson('/patches/prompt', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ finding }),
     });
-    return res.json();
   },
 
   async proposePatch(finding: ContractFinding): Promise<{ patch: string; targetFile: string; safetyCheck: any }> {
-    const res = await fetch(`${API_BASE}/patches/propose`, {
+    return fetchJson('/patches/propose', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ finding }),
     });
-    return res.json();
   },
 
   async applyPatch(patchId: string, userApproved: boolean): Promise<any> {
-    const res = await fetch(`${API_BASE}/patches/apply`, {
+    return fetchJson('/patches/apply', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ patchId, userApproved }),
     });
-    return res.json();
   },
 };

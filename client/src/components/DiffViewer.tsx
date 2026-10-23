@@ -17,36 +17,36 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({ diffText, filePath }) =>
   };
 
   return (
-    <div className="rounded-lg border border-slate-200 overflow-hidden font-mono text-xs bg-white shadow-sm">
-      <div className="bg-slate-100 px-4 py-2 border-b border-slate-200 flex items-center justify-between text-slate-700">
-        <span className="font-semibold text-slate-800">{filePath || 'Unified Diff'}</span>
+    <div className="rounded-xl border border-warm-border overflow-hidden font-mono text-xs bg-warm-card shadow-xs">
+      <div className="bg-warm-sidebar px-4 py-2.5 border-b border-warm-border flex items-center justify-between text-warm-primary">
+        <span className="font-semibold text-warm-primary">{filePath || 'Unified Diff'}</span>
         <button
           onClick={handleCopy}
-          className="flex items-center gap-1 text-[11px] text-slate-500 hover:text-slate-800 px-2 py-0.5 rounded hover:bg-slate-200 transition-colors"
+          className="flex items-center gap-1 text-[11px] text-warm-secondary hover:text-warm-primary px-2 py-0.5 rounded hover:bg-warm-border/60 transition-colors"
         >
           {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
           <span>{copied ? 'Copied' : 'Copy Diff'}</span>
         </button>
       </div>
 
-      <div className="overflow-x-auto max-h-96">
+      <div className="overflow-x-auto max-h-96 bg-warm-card">
         <table className="w-full text-left border-collapse">
           <tbody>
             {lines.map((line, idx) => {
-              let rowBg = 'bg-white text-slate-700';
+              let rowBg = 'bg-warm-card text-warm-primary';
               if (line.startsWith('+') && !line.startsWith('+++')) {
                 rowBg = 'bg-emerald-50 text-emerald-800 font-medium';
               } else if (line.startsWith('-') && !line.startsWith('---')) {
                 rowBg = 'bg-rose-50 text-rose-800 font-medium';
               } else if (line.startsWith('@@')) {
-                rowBg = 'bg-blue-50/70 text-blue-700 font-bold';
+                rowBg = 'bg-blue-50/70 text-blue-800 font-bold';
               } else if (line.startsWith('diff --git') || line.startsWith('index ')) {
-                rowBg = 'bg-slate-50 text-slate-400 italic';
+                rowBg = 'bg-warm-bg text-warm-secondary italic';
               }
 
               return (
-                <tr key={idx} className={`${rowBg} hover:bg-slate-100/50 transition-colors`}>
-                  <td className="w-10 px-2 py-0.5 text-right text-slate-400 select-none text-[10px] border-r border-slate-200">
+                <tr key={idx} className={`${rowBg} hover:opacity-90 transition-opacity`}>
+                  <td className="w-10 px-2 py-0.5 text-right text-warm-secondary select-none text-[10px] border-r border-warm-border/80">
                     {idx + 1}
                   </td>
                   <td className="px-3 py-0.5 whitespace-pre font-mono">

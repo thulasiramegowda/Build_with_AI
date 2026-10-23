@@ -1,13 +1,33 @@
+export interface UserProfile {
+  id: string;
+  login: string;
+  name: string;
+  avatarUrl: string;
+  email?: string | null;
+  htmlUrl: string;
+}
+
 export interface RepositoryMetadata {
   id: string;
   name: string;
   owner: string;
-  description: string;
+  fullName: string;
+  description: string | null;
   defaultBranch: string;
   languages: Record<string, number>;
   frameworks: string[];
-  totalFiles: number;
-  lastAnalyzed: string;
+  totalFiles?: number;
+  lastAnalyzed?: string | null;
+  isFixture?: boolean;
+  analysisStatus?: 'unscanned' | 'analyzing' | 'analyzed' | 'failed';
+  detectedRoutesCount?: number;
+  detectedApiCallsCount?: number;
+  componentsCount?: number;
+  modelsCount?: number;
+  contractErrorsCount?: number;
+  openPRsCount?: number;
+  url?: string;
+  isPrivate?: boolean;
 }
 
 export interface RouteDefinition {

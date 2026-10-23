@@ -55,41 +55,41 @@ export const MermaidViewer: React.FC<MermaidViewerProps> = ({ chart, className =
   }, [chart]);
 
   return (
-    <div className={`relative bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden flex flex-col ${className}`}>
+    <div className={`relative bg-warm-card rounded-xl border border-warm-border shadow-xs overflow-hidden flex flex-col ${className}`}>
       {/* Controls Bar */}
-      <div className="h-10 bg-slate-50 border-b border-slate-200 px-3 flex items-center justify-between text-xs text-slate-500">
-        <span className="font-medium text-slate-600 flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-blue-500" />
+      <div className="h-10 bg-warm-sidebar border-b border-warm-border px-3.5 flex items-center justify-between text-xs text-warm-secondary">
+        <span className="font-medium text-warm-primary flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-warm-accent" />
           Interactive Graph
         </span>
 
         <div className="flex items-center gap-1">
           <button
             onClick={() => setScale(s => Math.min(s + 0.15, 2.0))}
-            className="p-1.5 rounded hover:bg-slate-200 text-slate-600 transition-colors"
+            className="p-1.5 rounded hover:bg-warm-border/60 text-warm-secondary hover:text-warm-primary transition-colors"
             title="Zoom In"
           >
             <ZoomIn className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={() => setScale(s => Math.max(s - 0.15, 0.5))}
-            className="p-1.5 rounded hover:bg-slate-200 text-slate-600 transition-colors"
+            className="p-1.5 rounded hover:bg-warm-border/60 text-warm-secondary hover:text-warm-primary transition-colors"
             title="Zoom Out"
           >
             <ZoomOut className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={() => setScale(1)}
-            className="p-1.5 rounded hover:bg-slate-200 text-slate-600 transition-colors"
+            className="p-1.5 rounded hover:bg-warm-border/60 text-warm-secondary hover:text-warm-primary transition-colors"
             title="Reset Scale"
           >
             <RotateCcw className="w-3.5 h-3.5" />
           </button>
-          <div className="h-4 w-px bg-slate-300 mx-1" />
+          <div className="h-4 w-px bg-warm-border mx-1" />
           <button
             onClick={() => setShowRaw(!showRaw)}
             className={`px-2 py-1 rounded text-xs flex items-center gap-1 transition-colors ${
-              showRaw ? 'bg-blue-100 text-blue-700 font-semibold' : 'hover:bg-slate-200 text-slate-600'
+              showRaw ? 'bg-warm-accent-light text-warm-accent-hover font-semibold' : 'hover:bg-warm-border/60 text-warm-secondary'
             }`}
           >
             <Code className="w-3 h-3" />
@@ -99,19 +99,19 @@ export const MermaidViewer: React.FC<MermaidViewerProps> = ({ chart, className =
       </div>
 
       {/* Main Diagram Canvas */}
-      <div className="flex-1 overflow-auto p-6 flex items-center justify-center min-h-[360px] bg-slate-50/50">
+      <div className="flex-1 overflow-auto p-6 flex items-center justify-center min-h-[360px] bg-warm-bg/50">
         {error ? (
           <div className="text-center p-6 max-w-md">
             <AlertTriangle className="w-8 h-8 text-amber-500 mx-auto mb-2" />
-            <h4 className="text-sm font-semibold text-slate-800">Diagram Rendering Fallback</h4>
-            <p className="text-xs text-slate-500 mt-1">{error}</p>
-            <pre className="mt-3 p-3 bg-slate-100 text-slate-700 text-[11px] rounded text-left overflow-x-auto font-mono">
+            <h4 className="text-sm font-semibold text-warm-primary">Diagram Rendering Fallback</h4>
+            <p className="text-xs text-warm-secondary mt-1">{error}</p>
+            <pre className="mt-3 p-3 bg-warm-card border border-warm-border text-warm-primary text-[11px] rounded text-left overflow-x-auto font-mono">
               {chart}
             </pre>
           </div>
         ) : showRaw ? (
           <div className="w-full h-full p-4">
-            <pre className="w-full h-full p-4 bg-slate-900 text-emerald-400 font-mono text-xs rounded-lg overflow-auto">
+            <pre className="w-full h-full p-4 bg-warm-primary text-emerald-400 font-mono text-xs rounded-lg overflow-auto">
               {chart}
             </pre>
           </div>

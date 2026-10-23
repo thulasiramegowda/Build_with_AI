@@ -7,12 +7,25 @@ dotenv.config(); // fallback to local server/.env
 export const config = {
   port: parseInt(process.env.PORT || '3001', 10),
   clientUrl: process.env.CLIENT_URL || 'http://localhost:5173',
+  isProduction: process.env.NODE_ENV === 'production',
   geminiApiKey: process.env.GEMINI_API_KEY || '',
+  geminiModel: process.env.GEMINI_MODEL || 'gemini-1.5-flash',
+  session: {
+    cookieName: process.env.SESSION_COOKIE_NAME || 'codepulse_session',
+    ttlMs: parseInt(process.env.SESSION_TTL_MS || String(7 * 24 * 60 * 60 * 1000), 10), // 7 days
+  },
   github: {
-    appId: process.env.GITHUB_APP_ID || '',
     clientId: process.env.GITHUB_CLIENT_ID || '',
     clientSecret: process.env.GITHUB_CLIENT_SECRET || '',
-    privateKey: process.env.GITHUB_PRIVATE_KEY || '',
+    callbackUrl: process.env.GITHUB_CALLBACK_URL || 'http://localhost:3001/api/auth/github/callback',
   },
-  isDemoMode: !process.env.GITHUB_CLIENT_ID,
+  mysql: {
+    host: process.env.MYSQL_HOST || 'localhost',
+    port: parseInt(process.env.MYSQL_PORT || '3306', 10),
+    user: process.env.MYSQL_USER || 'root',
+    password: process.env.MYSQL_PASSWORD || '',
+    database: process.env.MYSQL_DATABASE || 'codepulse',
+    connectionLimit: parseInt(process.env.MYSQL_CONNECTION_LIMIT || '10', 10),
+    isConfigured: Boolean(process.env.MYSQL_DATABASE && process.env.MYSQL_USER),
+  },
 };
